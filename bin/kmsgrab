@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import subprocess
+import sys
+root = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(root if (root / "vtm_tools").is_dir() else root / "share/vtm-tools"))
+try:
+    from vtm_tools.capture import record
+    record()
+except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+    print(f"{Path(sys.argv[0]).name}: {error}", file=sys.stderr)
+    sys.exit(1)
+except KeyboardInterrupt:
+    sys.exit(130)

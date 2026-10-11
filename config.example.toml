@@ -1,0 +1,25 @@
+# Copy to ~/.config/vtm-tools/config.toml (per-user overrides)
+# or /etc/xdg/vtm-tools/config.toml (system defaults).
+[vtm]
+command = "vtm"
+# session = "my-desktop" # VTM_DESKTOP_PIN takes precedence; unset uses VTM default.
+
+[terminal]
+size = "110:40"
+
+[wallpaper]
+mode = "cover"
+reserved_rows = 1 # Top statistics panel; use 0 if no panel is present.
+symbols = "sextant+hhalf+vhalf+quad"
+# cell_size = "8x16" # Otherwise derived from outer terminal pixel dimensions.
+
+[screenshot]
+backend = "auto" # grim (Wayland), X11, otherwise kmsgrab
+# directory = "~/Pictures/Screenshots"
+# device = "/dev/dri/card0" # Otherwise choose DRM card with a connected output.
+# display = ":99" # Optional existing X11 clipboard server, also accepted via DISPLAY.
+# xauthority = "~/.local/state/vtm-clipboard/Xauthority"
+
+[recording]
+audio_delay_ms = 1000 # Preserves the correction used in our original kmsgrab.
+# directory = "~/Videos/vtm-recordings"
