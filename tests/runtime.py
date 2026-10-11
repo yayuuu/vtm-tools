@@ -59,11 +59,24 @@ with tempfile.TemporaryDirectory(prefix='vtm-tools-runtime-') as directory:
 
     try:
         wait(lambda: ('@' + pin) in Path('/proc/net/unix').read_text())
-        client = subprocess.Popen([vtm, '-t', '-p', pin], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
+        def desktop_terminal():
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+            fd = os.open('/dev/tty', os.O_RDONLY)
+            os.dup2(fd, 0)
+            os.close(fd)
+
+        client = subprocess.Popen([vtm, '-t', '-p', pin], stdin=slave, stdout=slave, stderr=slave, env=env, preexec_fn=desktop_terminal)
         os.close(slave); slave = -1
         until = time.monotonic() + 1
         while time.monotonic() < until:
             drain(); time.sleep(.03)
+        sys = __import__('sys')
+        sys.path.insert(0, str(root if (root / 'vtm_tools').is_dir() else Path('/usr/share/vtm-tools')))
+        from vtm_tools.common import terminal_geometry
+        assert os.readlink(f'/proc/{client.pid}/fd/0') == '/dev/tty'
+        assert terminal_geometry(pin) == (40, 140, 1120, 640)
+        print('PASS: wallpaper geometry uses the outer desktop PTY with /dev/tty stdin', flush=True)
         result = work / 'result.json'
         args = ['space argument', 'zażółć', '"quoted"', '$(echo no)', 'line\nbreak']
         code = 'import json,os,sys,time;from pathlib import Path;Path(sys.argv[1]).write_text(json.dumps([os.getcwd(),sys.argv[2:]],ensure_ascii=False));time.sleep(2)'

@@ -108,14 +108,33 @@ def terminal_geometry(pin=None):
             given = os.fsdecode(args[args.index(b"-p") + 1]) if b"-p" in args else ""
             if given != pin:
                 continue
-            fd = os.open(entry / "fd/0", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-            try:
-                geometry = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, bytes(8)))
-            finally:
-                os.close(fd)
+            for number in (0, 1, 2):
+                path = entry / "fd" / str(number)
+                try:
+                    # Opening another process's /dev/tty resolves to OUR
+                    # controlling terminal, not that process's terminal.
+                    # The desktop client normally has a concrete PTY on stdout.
+                    if os.readlink(path) == "/dev/tty":
+                        continue
+                    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+                    try:
+                        geometry = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, bytes(8)))
+                    finally:
+                        os.close(fd)
+                    if geometry[0] > 0 and geometry[1] > 0:
+                        return geometry
+                except OSError:
+                    continue
+        except (OSError, IndexError):
+            continue
+    # Before the desktop client starts, read the inherited kmscon PTY directly.
+    # COLUMNS/LINES may still describe the login manager or a shell window.
+    for fd in (0, 1):
+        try:
+            geometry = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, bytes(8)))
             if geometry[0] > 0 and geometry[1] > 0:
                 return geometry
-        except (OSError, IndexError):
+        except OSError:
             continue
     size = shutil.get_terminal_size((80, 25))
     return size.lines, size.columns, 0, 0
