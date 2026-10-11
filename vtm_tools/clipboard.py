@@ -19,12 +19,17 @@ def clipboard_env():
     return env
 
 
+def x11_target(mime):
+    # X11 text clients request UTF8_STRING, while Wayland uses MIME names.
+    return 'UTF8_STRING' if mime in ('text/plain', 'text/plain;charset=utf-8') else mime
+
+
 def copy_file(path, mime='text/plain;charset=utf-8'):
     env = clipboard_env()
     if env.get('WAYLAND_DISPLAY') and shutil.which('wl-copy'):
         command = ['wl-copy', '--type', mime]
     elif env.get('DISPLAY') and shutil.which('xclip'):
-        command = ['xclip', '-selection', 'clipboard', '-target', mime]
+        command = ['xclip', '-selection', 'clipboard', '-target', x11_target(mime)]
     else:
         raise RuntimeError('No clipboard backend: use wl-copy on Wayland or xclip with DISPLAY on X11/kmscon')
     with Path(path).open('rb') as stream:
@@ -44,7 +49,7 @@ def main():
         if args.paste:
             command += ['--no-newline']
     elif env.get('DISPLAY') and shutil.which('xclip'):
-        command = ['xclip', '-selection', 'clipboard', '-target', args.type]
+        command = ['xclip', '-selection', 'clipboard', '-target', x11_target(args.type)]
         if args.paste:
             command += ['-o']
     else:

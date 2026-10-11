@@ -90,6 +90,9 @@ with tempfile.TemporaryDirectory(prefix='vtm-tools-runtime-') as directory:
             assert image.read_bytes().startswith(b'\x89PNG\r\n\x1a\n')
             contents = subprocess.check_output([bin_dir / 'vtm-clipboard', '--paste', '--type', 'image/png'], env=env, timeout=10)
             assert contents == image.read_bytes()
+            text = 'zażółć gęślą jaźń\n'
+            subprocess.run([bin_dir / 'vtm-clipboard'], input=text.encode(), env=env, check=True, timeout=10)
+            assert subprocess.check_output(['xclip', '-selection', 'clipboard', '-o'], env=env, timeout=10).decode() == text
             clipboard_server.terminate(); clipboard_server.wait(timeout=5)
             assert not exports.exists()
             assert not list(runtime.glob('vtm-clipboard-*'))
