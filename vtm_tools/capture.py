@@ -65,14 +65,28 @@ def screenshot():
     else:
         command = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-n']
         if backend == 'kmsgrab':
-            command += kms_input(drm_device(args.device)) + ['-vf', 'hwdownload,format=bgr0']
+            device = drm_device(args.device)
+            helper = Path('/usr/libexec/vtm-desktop-capture')
+            if os.geteuid() != 0 and helper.is_file() and shutil.which('pkexec'):
+                try:
+                    with output.open('xb') as stream:
+                        subprocess.run(['pkexec', '--disable-internal-agent', str(helper), device],
+                                       stdout=stream, check=True, timeout=30)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    output.unlink(missing_ok=True)
+                    raise RuntimeError('KMS capture requires an active local desktop session')
+                command = None
+            else:
+                command += kms_input(device) + ['-vf', 'hwdownload,format=bgr0']
         else:
             if not os.getenv('DISPLAY'):
                 parser.error('X11 capture requires DISPLAY')
             command += ['-f', 'x11grab', '-i', os.environ['DISPLAY']]
-        command += ['-frames:v', '1', '-update', '1', str(output)]
+        if command is not None:
+            command += ['-frames:v', '1', '-update', '1', str(output)]
     try:
-        subprocess.run(command, check=True)
+        if command is not None:
+            subprocess.run(command, check=True)
     except subprocess.CalledProcessError:
         output.unlink(missing_ok=True)
         raise RuntimeError('Screen capture failed. KMS capture requires DRM access and root/CAP_SYS_ADMIN; use a configured capture helper on an unprivileged session.')
