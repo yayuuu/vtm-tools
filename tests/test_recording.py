@@ -1,12 +1,15 @@
 """Validate the screen-stream/encoder boundary with real FFmpeg processes."""
 import json
+import fcntl
 import os
 from pathlib import Path
+import pty
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import unittest
 from unittest.mock import patch
@@ -34,28 +37,37 @@ class RecordingTests(unittest.TestCase):
                 '-f', 'nut', '-i', 'pipe:0',
                 '-re', '-f', 'lavfi', '-i', 'sine=frequency=440',
                 '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264',
-                '-tune', 'zerolatency', '-c:a', 'aac', str(output)]
+                '-tune', 'zerolatency', '-c:a', 'aac', '-t', '10', str(output)]
             script = ('from pathlib import Path\nimport os\n'
                 'from vtm_tools.capture import record_stream\n'
                 f'record_stream(Path({str(helper)!r}), "/dev/dri/card0", '
                 f'{command!r}, dict(os.environ), Path({str(output)!r}))\n')
             env = {**os.environ, 'PATH': str(root) + ':' + os.environ['PATH']}
+            master, slave = pty.openpty()
+            def terminal():
+                os.setsid()
+                fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+                # Reproduce desktop-launcher state inherited across exec.
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+                signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
             with (root / 'log').open('w+') as log:
                 process = subprocess.Popen([sys.executable, '-c', script], env=env,
-                    start_new_session=True, stdout=log, stderr=log)
+                    stdin=slave, preexec_fn=terminal, stdout=log, stderr=log)
+                os.close(slave)
                 try:
                     deadline = time.monotonic() + 10
                     while not output.exists() and process.poll() is None and time.monotonic() < deadline:
                         time.sleep(.05)
                     self.assertTrue(output.exists())
                     time.sleep(2.2)
-                    # A terminal sends Ctrl+C to the entire foreground group.
-                    os.killpg(process.pid, signal.SIGINT)
+                    # Exercise the terminal's VINTR, not a direct kill signal.
+                    os.write(master, b'\x03')
                     self.assertEqual(process.wait(timeout=12), 0)
                 finally:
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
+                    os.close(master)
                 log.seek(0)
                 self.assertNotIn('Immediate exit requested', log.read())
             info = json.loads(subprocess.check_output(['ffprobe', '-v', 'error',

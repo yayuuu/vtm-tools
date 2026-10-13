@@ -100,7 +100,16 @@ def screenshot():
             raise SystemExit(1)
 
 
+def enable_recording_interrupts():
+    # Desktop launchers may ignore or block SIGINT. Python preserves that
+    # inherited state, so explicitly enable the advertised Ctrl+C action.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    if hasattr(signal, 'pthread_sigmask'):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+
+
 def record():
+    enable_recording_interrupts()
     settings = config('recording')
     parser = argparse.ArgumentParser(description='Record the KMS screen and system audio; stop with Ctrl+C')
     parser.add_argument('device', nargs='?')
@@ -164,6 +173,7 @@ def record():
 
 
 def record_stream(helper, device, command, env, output):
+    enable_recording_interrupts()
     capture = subprocess.Popen(['pkexec', '--disable-internal-agent', str(helper), '--record', device],
                                stdout=subprocess.PIPE)
     encoder = None
