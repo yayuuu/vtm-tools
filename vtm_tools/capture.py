@@ -188,6 +188,7 @@ def record_stream(helper, device, command, env, output):
             result = encoder.wait()
         except KeyboardInterrupt:
             interrupted = True
+            print('Stopping recording; finalizing file...', flush=True)
             if encoder.poll() is None:
                 encoder.send_signal(signal.SIGINT)
             try:

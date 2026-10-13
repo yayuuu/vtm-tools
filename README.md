@@ -94,6 +94,7 @@ w sesji nieuprzywilejowanej wymaga uprawnionego narzędzia capture albo
 odpowiedniej konfiguracji systemowej. Nie zmieniamy uprawnień całego FFmpeg.
 Domyślne opóźnienie audio 1000 ms zachowuje poprawkę używaną w pierwotnym
 skrypcie; na innej maszynie można ustawić inną wartość. Nagrywanie kończy Ctrl+C.
+Pojawia się komunikat o kończeniu; domknięcie pliku może potrwać do 10 sekund.
 
 ## Schowek w kmscon
 
