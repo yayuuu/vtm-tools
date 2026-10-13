@@ -127,8 +127,11 @@ def record():
             raise RuntimeError('Update vtm-desktop to enable unprivileged recording, or use --sudo')
     command = ['ffmpeg', '-hide_banner', '-nostdin', '-n']
     if use_helper:
-        command += ['-thread_queue_size', '512', '-analyzeduration', '0',
-                    '-probesize', '32', '-f', 'nut', '-i', 'pipe:0']
+        # Timestamp each arriving frame rather than replaying capture-side
+        # timestamps after a slow DRM download. Audio uses the live clock too.
+        command += ['-thread_queue_size', '32', '-analyzeduration', '1',
+                    '-probesize', '32', '-use_wallclock_as_timestamps', '1',
+                    '-f', 'nut', '-i', 'pipe:0']
     else:
         command += kms_input(device)
     env = dict(os.environ)
@@ -145,7 +148,9 @@ def record():
         cookie = Path.home() / '.config/pulse/cookie'
         if not env.get('PULSE_COOKIE') and cookie.exists():
             env['PULSE_COOKIE'] = str(cookie)
-    command += ['-vf', 'format=bgr0' if use_helper else 'hwdownload,format=bgr0', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p']
+    command += ['-filter_threads', '1', '-vf', 'format=bgr0' if use_helper else 'hwdownload,format=bgr0',
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+                '-crf', '18', '-pix_fmt', 'yuv420p']
     if not args.no_audio:
         command += ['-c:a', 'aac', '-b:a', '192k']
     command += [str(output)]

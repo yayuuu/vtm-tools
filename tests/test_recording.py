@@ -24,14 +24,17 @@ class RecordingTests(unittest.TestCase):
             pkexec.chmod(0o755)
             helper = root / 'capture'
             helper.write_text('#!/bin/sh\nexec ffmpeg -nostdin -hide_banner '
-                '-loglevel error -re -f lavfi -i testsrc2=size=64x48:rate=30 '
+                '-loglevel error -re -f lavfi -i testsrc2=size=64x48:rate=2 '
+                '-vf "settb=1/30,setpts=N" -enc_time_base 1:30 -fps_mode passthrough '
                 '-pix_fmt bgr0 -c:v rawvideo -threads 1 -f nut pipe:1\n')
             helper.chmod(0o755)
             output = root / 'interrupted.mkv'
             command = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
-                '-analyzeduration', '0', '-probesize', '32', '-f', 'nut', '-i', 'pipe:0',
+                '-analyzeduration', '1', '-probesize', '32', '-use_wallclock_as_timestamps', '1',
+                '-f', 'nut', '-i', 'pipe:0',
                 '-re', '-f', 'lavfi', '-i', 'sine=frequency=440',
-                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-c:a', 'aac', str(output)]
+                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264',
+                '-tune', 'zerolatency', '-c:a', 'aac', str(output)]
             script = ('from pathlib import Path\nimport os\n'
                 'from vtm_tools.capture import record_stream\n'
                 f'record_stream(Path({str(helper)!r}), "/dev/dri/card0", '
@@ -45,7 +48,7 @@ class RecordingTests(unittest.TestCase):
                     while not output.exists() and process.poll() is None and time.monotonic() < deadline:
                         time.sleep(.05)
                     self.assertTrue(output.exists())
-                    time.sleep(1)
+                    time.sleep(2.2)
                     # A terminal sends Ctrl+C to the entire foreground group.
                     os.killpg(process.pid, signal.SIGINT)
                     self.assertEqual(process.wait(timeout=12), 0)
@@ -58,7 +61,10 @@ class RecordingTests(unittest.TestCase):
             info = json.loads(subprocess.check_output(['ffprobe', '-v', 'error',
                 '-show_streams', '-show_format', '-of', 'json', output]))
             self.assertEqual({s['codec_type'] for s in info['streams']}, {'video', 'audio'})
-            self.assertGreater(float(info['format']['duration']), .5)
+            self.assertGreater(float(info['format']['duration']), 1.5)
+            packets = json.loads(subprocess.check_output(['ffprobe', '-v', 'error',
+                '-select_streams', 'v', '-show_packets', '-of', 'json', output]))['packets']
+            self.assertGreater(float(packets[-1]['pts_time']), 1.5)
 
     def test_video_stream_and_user_audio_are_muxed_into_user_file(self):
         with tempfile.TemporaryDirectory() as directory:
