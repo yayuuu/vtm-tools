@@ -127,7 +127,8 @@ def record():
             raise RuntimeError('Update vtm-desktop to enable unprivileged recording, or use --sudo')
     command = ['ffmpeg', '-hide_banner', '-nostdin', '-n']
     if use_helper:
-        command += ['-thread_queue_size', '512', '-f', 'nut', '-i', 'pipe:0']
+        command += ['-thread_queue_size', '512', '-analyzeduration', '0',
+                    '-probesize', '32', '-f', 'nut', '-i', 'pipe:0']
     else:
         command += kms_input(device)
     env = dict(os.environ)
@@ -163,7 +164,10 @@ def record_stream(helper, device, command, env, output):
     encoder = None
     interrupted = False
     try:
-        encoder = subprocess.Popen(command, stdin=capture.stdout, env=env)
+        # The terminal sends SIGINT to our process group. Forward it exactly
+        # once: a second SIGINT makes FFmpeg skip flushing the output file.
+        encoder = subprocess.Popen(command, stdin=capture.stdout, env=env,
+                                   start_new_session=True)
         capture.stdout.close()  # Encoder owns the only reader; its exit stops capture.
         try:
             result = encoder.wait()

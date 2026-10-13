@@ -3,8 +3,11 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -13,6 +16,50 @@ from vtm_tools.capture import record_stream
 
 @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg is required')
 class RecordingTests(unittest.TestCase):
+    def test_terminal_ctrl_c_flushes_video_and_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pkexec = root / 'pkexec'
+            pkexec.write_text('#!/bin/sh\nshift\nexec "$@"\n')
+            pkexec.chmod(0o755)
+            helper = root / 'capture'
+            helper.write_text('#!/bin/sh\nexec ffmpeg -nostdin -hide_banner '
+                '-loglevel error -re -f lavfi -i testsrc2=size=64x48:rate=30 '
+                '-pix_fmt bgr0 -c:v rawvideo -threads 1 -f nut pipe:1\n')
+            helper.chmod(0o755)
+            output = root / 'interrupted.mkv'
+            command = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin',
+                '-analyzeduration', '0', '-probesize', '32', '-f', 'nut', '-i', 'pipe:0',
+                '-re', '-f', 'lavfi', '-i', 'sine=frequency=440',
+                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-c:a', 'aac', str(output)]
+            script = ('from pathlib import Path\nimport os\n'
+                'from vtm_tools.capture import record_stream\n'
+                f'record_stream(Path({str(helper)!r}), "/dev/dri/card0", '
+                f'{command!r}, dict(os.environ), Path({str(output)!r}))\n')
+            env = {**os.environ, 'PATH': str(root) + ':' + os.environ['PATH']}
+            with (root / 'log').open('w+') as log:
+                process = subprocess.Popen([sys.executable, '-c', script], env=env,
+                    start_new_session=True, stdout=log, stderr=log)
+                try:
+                    deadline = time.monotonic() + 10
+                    while not output.exists() and process.poll() is None and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    self.assertTrue(output.exists())
+                    time.sleep(1)
+                    # A terminal sends Ctrl+C to the entire foreground group.
+                    os.killpg(process.pid, signal.SIGINT)
+                    self.assertEqual(process.wait(timeout=12), 0)
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                log.seek(0)
+                self.assertNotIn('Immediate exit requested', log.read())
+            info = json.loads(subprocess.check_output(['ffprobe', '-v', 'error',
+                '-show_streams', '-show_format', '-of', 'json', output]))
+            self.assertEqual({s['codec_type'] for s in info['streams']}, {'video', 'audio'})
+            self.assertGreater(float(info['format']['duration']), .5)
+
     def test_video_stream_and_user_audio_are_muxed_into_user_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
