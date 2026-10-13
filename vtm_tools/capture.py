@@ -4,6 +4,7 @@ import datetime
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -117,11 +118,24 @@ def record():
     if output.exists():
         parser.error('Output already exists')
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = ['ffmpeg', '-hide_banner', '-nostdin', '-n'] + kms_input(drm_device(args.device))
+    device = drm_device(args.device)
+    helper = Path('/usr/libexec/vtm-desktop-capture')
+    use_helper = not args.sudo and os.geteuid() != 0 and helper.is_file() and shutil.which('pkexec')
+    if use_helper:
+        support = subprocess.run([str(helper), '--supports-recording'], capture_output=True, timeout=3)
+        if support.returncode or support.stdout.strip() != b'yes':
+            raise RuntimeError('Update vtm-desktop to enable unprivileged recording, or use --sudo')
+    command = ['ffmpeg', '-hide_banner', '-nostdin', '-n']
+    if use_helper:
+        command += ['-thread_queue_size', '512', '-f', 'nut', '-i', 'pipe:0']
+    else:
+        command += kms_input(device)
     env = dict(os.environ)
     if not args.no_audio:
-        sink = subprocess.check_output(['pactl', 'get-default-sink'], text=True).strip()
-        source = args.audio_source or sink + '.monitor'
+        source = args.audio_source
+        if not source:
+            sink = subprocess.check_output(['pactl', 'get-default-sink'], text=True).strip()
+            source = sink + '.monitor'
         command += ['-thread_queue_size', '512', '-f', 'pulse', '-i', source,
                     '-map', '0:v:0', '-map', '1:a:0', '-af', f'adelay={args.audio_delay}:all=1']
         if not env.get('PULSE_SERVER'):
@@ -130,11 +144,48 @@ def record():
         cookie = Path.home() / '.config/pulse/cookie'
         if not env.get('PULSE_COOKIE') and cookie.exists():
             env['PULSE_COOKIE'] = str(cookie)
-    command += ['-vf', 'hwdownload,format=bgr0', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p']
+    command += ['-vf', 'format=bgr0' if use_helper else 'hwdownload,format=bgr0', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p']
     if not args.no_audio:
         command += ['-c:a', 'aac', '-b:a', '192k']
     command += [str(output)]
     if args.sudo and os.getuid() != 0:
         command = ['sudo', '--preserve-env=PULSE_SERVER,PULSE_COOKIE,XDG_RUNTIME_DIR', '--'] + command
     print(f'Recording: {output}; audio delay: {args.audio_delay} ms; stop with Ctrl+C', flush=True)
+    if use_helper:
+        record_stream(helper, device, command, env, output)
+        return
     os.execvpe(command[0], command, env)
+
+
+def record_stream(helper, device, command, env, output):
+    capture = subprocess.Popen(['pkexec', '--disable-internal-agent', str(helper), '--record', device],
+                               stdout=subprocess.PIPE)
+    encoder = None
+    interrupted = False
+    try:
+        encoder = subprocess.Popen(command, stdin=capture.stdout, env=env)
+        capture.stdout.close()  # Encoder owns the only reader; its exit stops capture.
+        try:
+            result = encoder.wait()
+        except KeyboardInterrupt:
+            interrupted = True
+            if encoder.poll() is None:
+                encoder.send_signal(signal.SIGINT)
+            try:
+                result = encoder.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                encoder.kill()
+                result = encoder.wait()
+        if result and not interrupted:
+            if output.exists() and output.stat().st_size == 0:
+                output.unlink()
+            raise RuntimeError('Recording failed; KMS capture requires an active local desktop session')
+    finally:
+        if capture.stdout and not capture.stdout.closed:
+            capture.stdout.close()
+        if encoder and encoder.poll() is None:
+            encoder.kill()
+            encoder.wait()
+        # The privileged writer exits on SIGPIPE after the encoder closes its
+        # reader; the unprivileged caller does not need to signal a root process.
+        capture.wait(timeout=10)

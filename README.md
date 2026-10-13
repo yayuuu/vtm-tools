@@ -73,7 +73,7 @@ odtwarza zapisaną tapetę przy starcie w aktualnym rozmiarze konsoli.
 screenshow
 screenshow --device /dev/dri/card1 --directory ~/Pictures/Screenshots
 screenshow --no-clipboard --output ./screen.png
-kmsgrab --sudo # nagrywanie KMS z systemowym audio
+kmsgrab # nagrywanie KMS z systemowym audio
 kmsgrab /dev/dri/card1 --audio-delay 1000 --output ./nagranie.mkv
 kmsgrab --no-audio --audio-delay 0
 ```
@@ -85,8 +85,10 @@ Automatyczny backend: grim w Wayland, rzeczywisty ekran X11, potem KMS.
 W kmscon serwer Xvfb przechowuje schowek, ale **nie jest ekranem do przechwycenia**.
 Karta DRM jest wybierana z aktywnych złączy; `--device` ją nadpisuje.
 
-FFmpeg kmsgrab wymaga uprawnień DRM/root lub CAP_SYS_ADMIN, których te narzędzia
-nie nadają. `kmsgrab --sudo` pozwala świadomie podnieść uprawnienia procesu
+W sesji vtm-desktop nagrywanie automatycznie korzysta z pomocnika polkit,
+który przesyła sam obraz. Kodowanie, dźwięk i zapis pliku działają jako użytkownik.
+Poza taką sesją FFmpeg kmsgrab wymaga uprawnień DRM/root lub CAP_SYS_ADMIN,
+których te narzędzia nie nadają. `kmsgrab --sudo` pozwala podnieść uprawnienia procesu
 nagrywania, zachowując dostęp do dźwięku użytkownika. Automatyczny PrintScreen
 w sesji nieuprzywilejowanej wymaga uprawnionego narzędzia capture albo
 odpowiedniej konfiguracji systemowej. Nie zmieniamy uprawnień całego FFmpeg.
